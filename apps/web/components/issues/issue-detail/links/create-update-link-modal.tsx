@@ -4,7 +4,7 @@
  * See the LICENSE file for details.
  */
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { observer } from "mobx-react";
 import { Controller, useForm } from "react-hook-form";
 import { useTranslation } from "@plane/i18n";
@@ -24,6 +24,8 @@ import {
 import { InputField } from "@makeplane/propel/components/input-field";
 // hooks
 import { useIssueDetail } from "@/hooks/store/use-issue-detail";
+// jira-clone: seletor de arquivos do Google Drive
+import { abrirDrivePicker, driveConfig } from "@/lib/drive-picker";
 // types
 import type { TLinkOperations } from "./root";
 
@@ -57,11 +59,44 @@ export const IssueLinkCreateUpdateModal = observer(function IssueLinkCreateUpdat
     handleSubmit,
     control,
     reset,
+    setValue,
   } = useForm<TIssueLinkCreateFormFieldOptions>({
     defaultValues,
   });
   // store hooks
   const { issueLinkData: preloadedData, setIssueLinkData } = useIssueDetail(issueServiceType);
+
+  // jira-clone: seletor de arquivos do Google Drive
+  const [driveLoading, setDriveLoading] = useState(false);
+  const [driveError, setDriveError] = useState("");
+  const driveCfg = driveConfig();
+
+  const handleDrivePick = async (onChangeUrl: (v: string) => void, onChangeTitle?: (v: string) => void) => {
+    if (!driveCfg) {
+      setDriveError("Configure VITE_GOOGLE_DRIVE_API_KEY e VITE_GOOGLE_DRIVE_APP_ID no build.");
+      return;
+    }
+    setDriveError("");
+    setDriveLoading(true);
+    try {
+      // O token OAuth e obtido via gapi ao carregar a API; o Picker usa-o.
+      const gapi = (window as any).gapi;
+      const token = gapi?.auth?.getAuthInstance()?.currentUser?.get()?.getAuthResponse()?.access_token;
+      if (!token) {
+        setDriveError("Entre com o Google para anexar arquivos do Drive.");
+        return;
+      }
+      const file = await abrirDrivePicker(driveCfg, token);
+      if (file) {
+        onChangeUrl(file.url);
+        onChangeTitle?.(file.name);
+      }
+    } catch (e) {
+      setDriveError(e instanceof Error ? e.message : "Erro ao abrir o Drive");
+    } finally {
+      setDriveLoading(false);
+    }
+  };
 
   const onClose = () => {
     setIssueLinkData(null);
@@ -99,6 +134,23 @@ export const IssueLinkCreateUpdateModal = observer(function IssueLinkCreateUpdat
               </DialogHeading>
             </DialogHeader>
             <DialogBody render={<div className="space-y-3" />}>
+              {/* jira-clone: anexar arquivo do Google Drive */}
+              <div className="flex flex-col gap-1">
+                <Button
+                  variant="secondary"
+                  size="md"
+                  stretch="auto"
+                  loading={driveLoading}
+                  onClick={() =>
+                    handleDrivePick(
+                      (url) => setValue("url", url),
+                      (title) => setValue("title", title)
+                    )
+                  }
+                  label="Anexar do Google Drive"
+                />
+                {driveError && <p className="text-xs text-danger-primary">{driveError}</p>}
+              </div>
               <Controller
                 control={control}
                 name="url"
